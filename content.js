@@ -9,7 +9,7 @@
 
 (() => {
   const MARGIN = 16;
-  const SIZE = 64;
+  const WIDTH = 76;
 
   const host = document.createElement("div");
   host.id = "prom-see-host";
@@ -21,13 +21,19 @@
         top: 50%;
         transform: translateY(-50%);
         z-index: 2147483000;
-        width: ${SIZE}px;
-        height: ${SIZE}px;
+        width: ${WIDTH}px;
+        height: 64px;
+        padding: 0;
         border: none;
-        border-radius: 50%;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
         background: rgba(73, 11, 184, 0.85);
         color: #fff;
-        font: bold 20px/1 system-ui, sans-serif;
+        font: 20px/1 system-ui, sans-serif;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
         cursor: pointer;
         user-select: none;
@@ -35,11 +41,17 @@
       button:hover { background: rgba(73, 11, 184, 1); }
       button:active { transform: translateY(-50%) scale(0.94); }
       button[hidden] { display: none; }
-      button.small { font-size: 15px; }
+      .label { font-weight: bold; }
+      .small .label { font-size: 16px; }
+      .page { font-size: 11px; opacity: 0.85; font-variant-numeric: tabular-nums; }
     </style>
-    <button type="button" title="次 (N)" hidden>次</button>
+    <button type="button" title="次 (N)" hidden>
+      <span class="label">次</span><span class="page"></span>
+    </button>
   `;
   const button = root.querySelector("button");
+  const labelEl = root.querySelector(".label");
+  const pageEl = root.querySelector(".page");
 
   // 現在のページで「次」が何をするかを調べる。何もできなければ null。
   function detect() {
@@ -62,7 +74,8 @@
     const link = slide.querySelector('a[href$="/viewer"]');
     if (link) {
       const m = link.textContent.match(/(\d+)\s*枚/);
-      if (m && Number(m[1]) > 1) return { kind: "open", link, right };
+      const total = m ? Number(m[1]) : 0;
+      if (total > 1) return { kind: "open", link, right, total };
     }
     return null;
   }
@@ -76,6 +89,19 @@
   function atLast(swiper) {
     if (swiper.params.loop) return swiper.realIndex >= realCount(swiper) - 1;
     return swiper.isEnd;
+  }
+
+  // 何枚目 / 全何枚。ビューアの最後の「いかがでしたか」カードは枚数に数えず、
+  // そこでは最後の 1 枚と同じ表示にする
+  function pageInfo(c) {
+    if (c.kind === "open") return [1, c.total];
+    const s = c.swiper;
+    if (s.params.loop) return [s.realIndex + 1, realCount(s)];
+    // 画像のスライドは先頭の子に overflow-hidden が付く（カードには付かない。2026-09 実測）
+    const total = [...s.slides].filter((x) =>
+      x.firstElementChild?.classList.contains("overflow-hidden")
+    ).length || s.slides.length;
+    return [Math.min(s.activeIndex + 1, total), total];
   }
 
   let current = null;
@@ -93,12 +119,15 @@
     }
     const label =
       current.kind === "open" ? "見る" : atLast(current.swiper) ? "最初" : "次";
-    if (button.textContent !== label) {
-      button.textContent = label;
+    if (labelEl.textContent !== label) {
+      labelEl.textContent = label;
       button.title = `${label} (N)`;
     }
     button.classList.toggle("small", label.length > 1);
-    const left = Math.max(MARGIN, current.right - SIZE - MARGIN);
+    const [cur, total] = pageInfo(current);
+    const page = `${cur} / ${total}`;
+    if (pageEl.textContent !== page) pageEl.textContent = page;
+    const left = Math.max(MARGIN, current.right - WIDTH - MARGIN);
     button.style.left = `${left}px`;
     button.hidden = false;
   }

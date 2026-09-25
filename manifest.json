@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "prom-see",
-  "version": "1.1",
+  "version": "1.2",
   "description": "PromptCom の複数枚の作品を、画面右に浮かぶ「次」ボタンひとつで次々と見られるようにします。",
   "content_scripts": [
     {
