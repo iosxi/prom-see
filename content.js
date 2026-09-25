@@ -1,5 +1,5 @@
 // prom-see: PromptCom の複数枚作品を「次」ボタンひとつで送る。
-// ビューアではその下に「閉じる」も出す。キーは N が「次」、M が「閉じる」。
+// その上に「前」、ビューアでは下に「閉じる」も出す。キーは B が「前」、N が「次」、M が「閉じる」。
 //
 // サイトは 3 通りの見せ方をしている（2026-09 実測）。
 //   ビューア (/p/<id>/viewer) : 全画面の Swiper（右→左、loop なし、最後に「いかがでしたか」カード）
@@ -47,23 +47,29 @@
       .label { font-weight: bold; }
       .small .label { font-size: 16px; }
       .page { font-size: 11px; opacity: 0.85; font-variant-numeric: tabular-nums; }
-      .close {
-        top: calc(50% + 40px);
+      .prev, .close {
         transform: none;
         height: 36px;
-        background: rgba(40, 40, 40, 0.85);
         font-size: 15px;
         font-weight: bold;
+      }
+      .prev { top: calc(50% - 76px); }
+      .prev:active { transform: scale(0.94); }
+      .close {
+        top: calc(50% + 40px);
+        background: rgba(40, 40, 40, 0.85);
       }
       .close:hover { background: rgba(40, 40, 40, 1); }
       .close:active { transform: scale(0.94); }
     </style>
-    <button type="button" title="次 (N)" hidden>
+    <button type="button" class="prev" title="前 (B)" hidden>前</button>
+    <button type="button" class="next" title="次 (N)" hidden>
       <span class="label">次</span><span class="page"></span>
     </button>
     <button type="button" class="close" title="閉じる (M)" hidden>閉じる</button>
   `;
-  const button = root.querySelector("button:not(.close)");
+  const button = root.querySelector(".next");
+  const prevButton = root.querySelector(".prev");
   const closeButton = root.querySelector(".close");
   const labelEl = root.querySelector(".label");
   const pageEl = root.querySelector(".page");
@@ -106,6 +112,10 @@
     return swiper.isEnd;
   }
 
+  function atFirst(swiper) {
+    return (swiper.params.loop ? swiper.realIndex : swiper.activeIndex) === 0;
+  }
+
   // 何枚目 / 全何枚。ビューアの最後の「いかがでしたか」カードは枚数に数えず、
   // そこでは最後の 1 枚と同じ表示にする
   function pageInfo(c) {
@@ -135,12 +145,13 @@
     closeButton.hidden = !siteClose;
     closeButton.style.left = `${Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN)}px`;
     current = detect();
-    if (!current || current.swiper?.destroyed || current.right <= 0) {
-      button.hidden = true;
-      return;
-    }
-    if (current.kind === "swiper" && realCount(current.swiper) < 2) {
-      button.hidden = true;
+    if (
+      !current ||
+      current.swiper?.destroyed ||
+      current.right <= 0 ||
+      (current.kind === "swiper" && realCount(current.swiper) < 2)
+    ) {
+      button.hidden = prevButton.hidden = true;
       return;
     }
     const label =
@@ -156,6 +167,19 @@
     const left = Math.max(MARGIN, current.right - WIDTH - MARGIN);
     button.style.left = `${left}px`;
     button.hidden = false;
+
+    // 「前」は Swiper のあるページだけ（「見る」の段階では戻る先がない）
+    if (current.kind === "swiper") {
+      const prevLabel = atFirst(current.swiper) ? "最後" : "前";
+      if (prevButton.textContent !== prevLabel) {
+        prevButton.textContent = prevLabel;
+        prevButton.title = `${prevLabel} (B)`;
+      }
+      prevButton.style.left = `${left}px`;
+      prevButton.hidden = false;
+    } else {
+      prevButton.hidden = true;
+    }
   }
 
   // ボタンが見えているときだけ、その表示どおりの動作をする
@@ -175,6 +199,22 @@
     return true;
   }
 
+  // 1 枚目では最後の画像へ（ビューアの「いかがでしたか」カードではなく、最後の画像）
+  function pressPrev() {
+    update();
+    const c = current;
+    if (!c || prevButton.hidden) return false;
+    if (!atFirst(c.swiper)) {
+      c.swiper.slidePrev();
+    } else if (c.swiper.params.loop) {
+      c.swiper.slideToLoop(realCount(c.swiper) - 1);
+    } else {
+      c.swiper.slideTo(pageInfo(c)[1] - 1);
+    }
+    setTimeout(update, 50);
+    return true;
+  }
+
   function pressClose() {
     update();
     if (closeButton.hidden) return false;
@@ -188,13 +228,19 @@
     press();
   });
 
+  prevButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pressPrev();
+  });
+
   closeButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     pressClose();
   });
 
-  // N / M キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
+  // B / N / M キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
   function isTyping(el) {
     for (; el; el = el.parentElement || el.getRootNode().host) {
       if (el.isContentEditable) return true;
@@ -208,7 +254,7 @@
   window.addEventListener(
     "keydown",
     (e) => {
-      const action = { KeyN: press, KeyM: pressClose }[e.code];
+      const action = { KeyB: pressPrev, KeyN: press, KeyM: pressClose }[e.code];
       if (!action || e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.repeat || e.isComposing || isTyping(e.target)) return;
       if (action()) {
