@@ -101,7 +101,15 @@
     return null;
   }
 
+  // 画像が多い作品のビューアは Virtual Slides で、DOM には表示中の近くの 2〜3 枚しかない。
+  // 全体は swiper.virtual.slides（React 要素の配列）にある（2026-09 実測、11 枚・15 枚の作品）
+  function virtualSlides(swiper) {
+    return swiper.params.virtual?.enabled ? swiper.virtual?.slides : null;
+  }
+
   function realCount(swiper) {
+    const v = virtualSlides(swiper);
+    if (v) return v.length;
     return [...swiper.slides].filter(
       (s) => !s.classList.contains("swiper-slide-duplicate")
     ).length;
@@ -122,10 +130,15 @@
     if (c.kind === "open") return [1, c.total];
     const s = c.swiper;
     if (s.params.loop) return [s.realIndex + 1, realCount(s)];
-    // 画像のスライドは先頭の子に overflow-hidden が付く（カードには付かない。2026-09 実測）
-    const total = [...s.slides].filter((x) =>
-      x.firstElementChild?.classList.contains("overflow-hidden")
-    ).length || s.slides.length;
+    // カードは Virtual では key が ".$cross-promo"、そうでなければ先頭の子に
+    // overflow-hidden が付かないことで見分ける（画像スライドには付く。2026-09 実測）
+    const v = virtualSlides(s);
+    const total =
+      (v
+        ? v.filter((e) => !String(e?.key).includes("cross-promo")).length
+        : [...s.slides].filter((x) =>
+            x.firstElementChild?.classList.contains("overflow-hidden")
+          ).length) || realCount(s);
     return [Math.min(s.activeIndex + 1, total), total];
   }
 
