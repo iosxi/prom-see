@@ -1,4 +1,5 @@
 // prom-see: PromptCom の複数枚作品を「次」ボタンひとつで送る。
+// ビューアではその下に「閉じる」も出す。キーは N が「次」、M が「閉じる」。
 //
 // サイトは 3 通りの見せ方をしている（2026-09 実測）。
 //   ビューア (/p/<id>/viewer) : 全画面の Swiper（右→左、loop なし、最後に「いかがでしたか」カード）
@@ -6,6 +7,8 @@
 //   イラスト (/p/<id>)        : サムネイルと「作品を見る (N枚)」リンク。ビューアを別タブで開く
 // Swiper のインスタンスは要素の .swiper プロパティにあり、ページ側の JS 世界からしか見えないため、
 // この script は manifest で world: "MAIN" として注入している。
+// ビューア右上の ✕ は、詳細ページから開いたタブなら閉じ、直接開いたときは詳細ページへ戻る。
+// 「閉じる」はこの ✕ をそのまま押すことで同じ動作にしている。
 
 (() => {
   const MARGIN = 16;
@@ -44,12 +47,24 @@
       .label { font-weight: bold; }
       .small .label { font-size: 16px; }
       .page { font-size: 11px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+      .close {
+        top: calc(50% + 40px);
+        transform: none;
+        height: 36px;
+        background: rgba(40, 40, 40, 0.85);
+        font-size: 15px;
+        font-weight: bold;
+      }
+      .close:hover { background: rgba(40, 40, 40, 1); }
+      .close:active { transform: scale(0.94); }
     </style>
     <button type="button" title="次 (N)" hidden>
       <span class="label">次</span><span class="page"></span>
     </button>
+    <button type="button" class="close" title="閉じる (M)" hidden>閉じる</button>
   `;
-  const button = root.querySelector("button");
+  const button = root.querySelector("button:not(.close)");
+  const closeButton = root.querySelector(".close");
   const labelEl = root.querySelector(".label");
   const pageEl = root.querySelector(".page");
 
@@ -104,10 +119,21 @@
     return [Math.min(s.activeIndex + 1, total), total];
   }
 
+  // ビューア右上の ✕（アイコンの形で見分ける）
+  function findSiteClose() {
+    return document.querySelector(
+      '.fixed.inset-0 button:has(path[d="M6 18 18 6M6 6l12 12"])'
+    );
+  }
+
   let current = null;
+  let siteClose = null;
 
   function update() {
     if (!host.isConnected) document.documentElement.appendChild(host);
+    siteClose = findSiteClose();
+    closeButton.hidden = !siteClose;
+    closeButton.style.left = `${Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN)}px`;
     current = detect();
     if (!current || current.swiper?.destroyed || current.right <= 0) {
       button.hidden = true;
@@ -149,13 +175,26 @@
     return true;
   }
 
+  function pressClose() {
+    update();
+    if (closeButton.hidden) return false;
+    siteClose.click();
+    return true;
+  }
+
   button.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     press();
   });
 
-  // N キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
+  closeButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pressClose();
+  });
+
+  // N / M キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
   function isTyping(el) {
     for (; el; el = el.parentElement || el.getRootNode().host) {
       if (el.isContentEditable) return true;
@@ -169,9 +208,10 @@
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.code !== "KeyN" || e.ctrlKey || e.altKey || e.metaKey) return;
+      const action = { KeyN: press, KeyM: pressClose }[e.code];
+      if (!action || e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.repeat || e.isComposing || isTyping(e.target)) return;
-      if (press()) {
+      if (action()) {
         e.preventDefault();
         e.stopPropagation();
       }
