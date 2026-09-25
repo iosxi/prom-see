@@ -1,0 +1,157 @@
+// prom-see: PromptCom の複数枚作品を「次」ボタンひとつで送る。
+//
+// サイトは 3 通りの見せ方をしている（2026-09 実測）。
+//   ビューア (/p/<id>/viewer) : 全画面の Swiper（右→左、loop なし、最後に「いかがでしたか」カード）
+//   ファイル (/p/<id>)        : 本文カラム内の Swiper（loop あり）。下のスライダーは Swiper に追従する
+//   イラスト (/p/<id>)        : サムネイルと「作品を見る (N枚)」リンク。ビューアを別タブで開く
+// Swiper のインスタンスは要素の .swiper プロパティにあり、ページ側の JS 世界からしか見えないため、
+// この script は manifest で world: "MAIN" として注入している。
+
+(() => {
+  const MARGIN = 16;
+  const SIZE = 64;
+
+  const host = document.createElement("div");
+  host.id = "prom-see-host";
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      button {
+        position: fixed;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2147483000;
+        width: ${SIZE}px;
+        height: ${SIZE}px;
+        border: none;
+        border-radius: 50%;
+        background: rgba(73, 11, 184, 0.85);
+        color: #fff;
+        font: bold 20px/1 system-ui, sans-serif;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+        user-select: none;
+      }
+      button:hover { background: rgba(73, 11, 184, 1); }
+      button:active { transform: translateY(-50%) scale(0.94); }
+      button[hidden] { display: none; }
+      button.small { font-size: 15px; }
+    </style>
+    <button type="button" title="次 (N)" hidden>次</button>
+  `;
+  const button = root.querySelector("button");
+
+  // 現在のページで「次」が何をするかを調べる。何もできなければ null。
+  function detect() {
+    const viewer = document.querySelector(".fixed.inset-0 .swiper");
+    if (viewer && viewer.swiper) {
+      return { kind: "swiper", swiper: viewer.swiper, right: window.innerWidth };
+    }
+
+    const slide = document.querySelector(".bg-bgSlide");
+    if (!slide) return null;
+    // サイドバーを除いた本文カラムの右端
+    const column = slide.parentElement || slide;
+    const right = column.getBoundingClientRect().right;
+
+    const inline = slide.querySelector(".swiper");
+    if (inline && inline.swiper) {
+      return { kind: "swiper", swiper: inline.swiper, right };
+    }
+
+    const link = slide.querySelector('a[href$="/viewer"]');
+    if (link) {
+      const m = link.textContent.match(/(\d+)\s*枚/);
+      if (m && Number(m[1]) > 1) return { kind: "open", link, right };
+    }
+    return null;
+  }
+
+  function realCount(swiper) {
+    return [...swiper.slides].filter(
+      (s) => !s.classList.contains("swiper-slide-duplicate")
+    ).length;
+  }
+
+  function atLast(swiper) {
+    if (swiper.params.loop) return swiper.realIndex >= realCount(swiper) - 1;
+    return swiper.isEnd;
+  }
+
+  let current = null;
+
+  function update() {
+    if (!host.isConnected) document.documentElement.appendChild(host);
+    current = detect();
+    if (!current || current.swiper?.destroyed || current.right <= 0) {
+      button.hidden = true;
+      return;
+    }
+    if (current.kind === "swiper" && realCount(current.swiper) < 2) {
+      button.hidden = true;
+      return;
+    }
+    const label =
+      current.kind === "open" ? "見る" : atLast(current.swiper) ? "最初" : "次";
+    if (button.textContent !== label) {
+      button.textContent = label;
+      button.title = `${label} (N)`;
+    }
+    button.classList.toggle("small", label.length > 1);
+    const left = Math.max(MARGIN, current.right - SIZE - MARGIN);
+    button.style.left = `${left}px`;
+    button.hidden = false;
+  }
+
+  // ボタンが見えているときだけ、その表示どおりの動作をする
+  function press() {
+    update();
+    const c = current;
+    if (!c || button.hidden) return false;
+    if (c.kind === "open") {
+      c.link.click();
+    } else if (atLast(c.swiper)) {
+      if (c.swiper.params.loop) c.swiper.slideToLoop(0);
+      else c.swiper.slideTo(0);
+    } else {
+      c.swiper.slideNext();
+    }
+    setTimeout(update, 50);
+    return true;
+  }
+
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    press();
+  });
+
+  // N キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
+  function isTyping(el) {
+    for (; el; el = el.parentElement || el.getRootNode().host) {
+      if (el.isContentEditable) return true;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && el.type !== "range") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.code !== "KeyN" || e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.repeat || e.isComposing || isTyping(e.target)) return;
+      if (press()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true
+  );
+
+  // Next.js の画面遷移や Swiper の遅延初期化に追従するため、定期的に見直す
+  setInterval(update, 300);
+  window.addEventListener("resize", update);
+  update();
+})();
