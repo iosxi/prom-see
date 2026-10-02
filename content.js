@@ -1,5 +1,7 @@
 // prom-see: Aniborn（旧 PromptCom）の複数枚作品を「次」ボタンひとつで送る。
-// その上に「前」、ビューアでは下に「閉じる」も出す。キーは B が「前」、N が「次」、M が「閉じる」。
+// その上に「前」、ビューアでは下に「閉じる」も出す。キーは B / ← が「前」、N / → が「次」、M / ↓ が「閉じる」。
+// ビューアはサイト自身も矢印キーで送れるが、右→左送りのため ← が次・→ が前になっている。
+// 拡張は → を「次」にそろえ、サイトより先に受け取って止める（2026-10-02 実測）。
 //
 // サイトは prompt-com.com から aniborn.com へ移転した（2026-10-01 確認。旧ドメインは 301 で転送）。ページ構造は同じ。
 // サイトは 3 通りの見せ方をしている（2026-09 実測）。
@@ -63,11 +65,11 @@
       .close:hover { background: rgba(40, 40, 40, 1); }
       .close:active { transform: scale(0.94); }
     </style>
-    <button type="button" class="prev" title="前 (B)" hidden>前</button>
-    <button type="button" class="next" title="次 (N)" hidden>
+    <button type="button" class="prev" title="前 (B / ←)" hidden>前</button>
+    <button type="button" class="next" title="次 (N / →)" hidden>
       <span class="label">次</span><span class="page"></span>
     </button>
-    <button type="button" class="close" title="閉じる (M)" hidden>閉じる</button>
+    <button type="button" class="close" title="閉じる (M / ↓)" hidden>閉じる</button>
   `;
   const button = root.querySelector(".next");
   const prevButton = root.querySelector(".prev");
@@ -172,7 +174,7 @@
       current.kind === "open" ? "見る" : atLast(current.swiper) ? "最初" : "次";
     if (labelEl.textContent !== label) {
       labelEl.textContent = label;
-      button.title = `${label} (N)`;
+      button.title = `${label} (N / →)`;
     }
     button.classList.toggle("small", label.length > 1);
     const [cur, total] = pageInfo(current);
@@ -187,7 +189,7 @@
       const prevLabel = atFirst(current.swiper) ? "最後" : "前";
       if (prevButton.textContent !== prevLabel) {
         prevButton.textContent = prevLabel;
-        prevButton.title = `${prevLabel} (B)`;
+        prevButton.title = `${prevLabel} (B / ←)`;
       }
       prevButton.style.left = `${left}px`;
       prevButton.hidden = false;
@@ -254,7 +256,8 @@
     pressClose();
   });
 
-  // B / N / M キーでも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない
+  // B / N / M キーと ← / → / ↓ でも押せる。入力欄での文字入力や修飾キー付きの操作は邪魔しない。
+  // ボタンが出ていないとき（action が false）は、矢印キー本来のスクロールなどをそのまま通す
   function isTyping(el) {
     for (; el; el = el.parentElement || el.getRootNode().host) {
       if (el.isContentEditable) return true;
@@ -268,7 +271,14 @@
   window.addEventListener(
     "keydown",
     (e) => {
-      const action = { KeyB: pressPrev, KeyN: press, KeyM: pressClose }[e.code];
+      const action = {
+        KeyB: pressPrev,
+        ArrowLeft: pressPrev,
+        KeyN: press,
+        ArrowRight: press,
+        KeyM: pressClose,
+        ArrowDown: pressClose,
+      }[e.code];
       if (!action || e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.repeat || e.isComposing || isTyping(e.target)) return;
       if (action()) {
